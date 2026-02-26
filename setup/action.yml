@@ -1,0 +1,16 @@
+name: Setup Miren CLI
+description: Download and install the Miren CLI for use in GitHub Actions
+
+inputs:
+  version:
+    description: Release channel / version to download (e.g. "latest", "v0.4.1")
+    required: false
+    default: latest
+
+outputs:
+  version:
+    description: The installed Miren CLI version
+
+runs:
+  using: node20
+  main: dist/index.js
