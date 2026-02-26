@@ -1,0 +1,37 @@
+name: Miren Deploy
+description: Deploy an application to Miren using OIDC authentication
+
+inputs:
+  cluster:
+    description: Miren cluster address with TLS fingerprint (from `miren cluster export-address`)
+    required: true
+  app:
+    description: Application name to deploy
+    required: true
+  args:
+    description: Extra arguments passed to `miren deploy` (e.g. `-vv --explain`)
+    required: false
+    default: ""
+  version:
+    description: Miren CLI version to install (passed to setup action)
+    required: false
+    default: latest
+
+runs:
+  using: composite
+  steps:
+    - name: Setup Miren CLI
+      uses: mirendev/actions/setup@main
+      with:
+        version: ${{ inputs.version }}
+
+    - name: Deploy
+      shell: bash
+      env:
+        MIREN_CLUSTER: ${{ inputs.cluster }}
+        MIREN_APP: ${{ inputs.app }}
+      run: |
+        start=$(date +%s)
+        miren deploy ${{ inputs.args }}
+        duration=$(( $(date +%s) - start ))
+        echo "duration=${duration}" >> "$GITHUB_OUTPUT"
