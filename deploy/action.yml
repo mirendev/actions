@@ -17,6 +17,11 @@ inputs:
     required: false
     default: latest
 
+outputs:
+  duration:
+    description: Deploy wall-clock duration in seconds
+    value: ${{ steps.deploy.outputs.duration }}
+
 runs:
   using: composite
   steps:
@@ -26,6 +31,7 @@ runs:
         version: ${{ inputs.version }}
 
     - name: Deploy
+      id: deploy
       shell: bash
       env:
         MIREN_CLUSTER: ${{ inputs.cluster }}
