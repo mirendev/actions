@@ -41,12 +41,43 @@ steps:
 | `app` | yes | | Application name to deploy |
 | `args` | no | `""` | Extra arguments passed to `miren deploy` (e.g. `-vv --explain`) |
 | `version` | no | `latest` | Miren CLI version to install |
+| `ephemeral` | no | `""` | Deploy as an ephemeral preview with this label. The CLI normalizes it to a DNS-safe form, so a branch name like `feat/login` becomes `feat-login`. |
+| `ttl` | no | `24h` | Lifetime for the ephemeral version (e.g. `48h`). Only used when `ephemeral` is set. |
 
 ### Outputs
 
 | Output | Description |
 |--------|-------------|
 | `duration` | Deploy wall-clock duration in seconds |
+| `url` | First URL of the deployed app (the ephemeral preview URL when `ephemeral` is set) |
+
+### Ephemeral previews
+
+Use `ephemeral` to deploy a short-lived preview version on every push to a PR. The version is labelled, gets its own subdomain, and is garbage-collected after `ttl`.
+
+```yaml
+on:
+  pull_request:
+
+permissions:
+  id-token: write
+  contents: read
+  pull-requests: write
+
+jobs:
+  preview:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - id: deploy
+        uses: mirendev/actions/deploy@main
+        with:
+          cluster: ${{ secrets.MIREN_CLUSTER }}
+          app: myapp
+          ephemeral: pr-${{ github.event.number }}
+          ttl: 48h
+      - run: echo "Preview is at ${{ steps.deploy.outputs.url }}"
+```
 
 ## `mirendev/actions/setup`
 
