@@ -16,11 +16,22 @@ inputs:
     description: Miren CLI version to install (passed to setup action)
     required: false
     default: latest
+  ephemeral:
+    description: Deploy as an ephemeral preview with this label (e.g. a branch or PR number). The label is normalized to a DNS-safe form.
+    required: false
+    default: ""
+  ttl:
+    description: Lifetime for the ephemeral version (e.g. `48h`). Only used when `ephemeral` is set.
+    required: false
+    default: 24h
 
 outputs:
   duration:
     description: Deploy wall-clock duration in seconds
     value: ${{ steps.deploy.outputs.duration }}
+  url:
+    description: First URL of the deployed app (ephemeral preview URL when `ephemeral` is set)
+    value: ${{ steps.deploy.outputs.url }}
 
 runs:
   using: composite
@@ -36,8 +47,22 @@ runs:
       env:
         MIREN_CLUSTER: ${{ inputs.cluster }}
         MIREN_APP: ${{ inputs.app }}
+        EPHEMERAL: ${{ inputs.ephemeral }}
+        TTL: ${{ inputs.ttl }}
       run: |
+        set -o pipefail
+        ephemeral_args=()
+        if [[ -n "${EPHEMERAL}" ]]; then
+          ephemeral_args+=(--ephemeral "${EPHEMERAL}" --ttl "${TTL}")
+        fi
+
+        log_file=$(mktemp)
         start=$(date +%s)
-        miren deploy ${{ inputs.args }}
+        miren deploy "${ephemeral_args[@]}" ${{ inputs.args }} 2>&1 | tee "${log_file}"
         duration=$(( $(date +%s) - start ))
         echo "duration=${duration}" >> "$GITHUB_OUTPUT"
+
+        url=$(grep -E '^[[:space:]]*URL:[[:space:]]+https?://' "${log_file}" | head -n1 | sed -E 's|^[[:space:]]*URL:[[:space:]]+||')
+        if [[ -n "${url}" ]]; then
+          echo "url=${url}" >> "$GITHUB_OUTPUT"
+        fi
