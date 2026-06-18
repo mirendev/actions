@@ -32,6 +32,9 @@ outputs:
   url:
     description: First URL of the deployed app (ephemeral preview URL when `ephemeral` is set)
     value: ${{ steps.deploy.outputs.url }}
+  urls:
+    description: All route URLs for the deployed app, newline-separated (stable deploys; ephemeral previews report only their single preview URL)
+    value: ${{ steps.deploy.outputs.urls }}
 
 runs:
   using: composite
@@ -62,7 +65,39 @@ runs:
         duration=$(( $(date +%s) - start ))
         echo "duration=${duration}" >> "$GITHUB_OUTPUT"
 
-        url=$(grep -E '^[[:space:]]*URL:[[:space:]]+https?://' "${log_file}" | head -n1 | sed -E 's|^[[:space:]]*URL:[[:space:]]+||')
-        if [[ -n "${url}" ]]; then
-          echo "url=${url}" >> "$GITHUB_OUTPUT"
+        # Resolve the deployed app's route URL(s). The app is already live by
+        # this point, so URL resolution must never fail the step — every branch
+        # below is non-fatal.
+        #
+        # Ephemeral previews aren't real routes, so their URL only appears in
+        # the deploy output as "URL: https://..." lines. Stable deploys are read
+        # from the structured route table instead, which is durable across
+        # changes to the human-readable deploy message.
+        urls=()
+        if [[ -n "${EPHEMERAL}" ]]; then
+          mapfile -t urls < <(
+            grep -E '^[[:space:]]*URL:[[:space:]]+https?://' "${log_file}" \
+              | sed -E 's|^[[:space:]]*URL:[[:space:]]+||' || true
+          )
+        else
+          routes_json=$(miren route list --format json 2>/dev/null || echo '[]')
+          mapfile -t urls < <(
+            jq -r --arg app "${MIREN_APP}" '
+              [ .[]
+                | select(((.app // "") | sub("^app/"; "")) == $app)
+                | (.host // "")
+                | select(. != "" and . != "(default)")
+                | "https://" + .
+              ] | unique | .[]
+            ' <<<"${routes_json}" 2>/dev/null || true
+          )
+        fi
+
+        if [[ ${#urls[@]} -gt 0 ]]; then
+          echo "url=${urls[0]}" >> "$GITHUB_OUTPUT"
+          {
+            echo "urls<<EOF"
+            printf '%s\n' "${urls[@]}"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
         fi
