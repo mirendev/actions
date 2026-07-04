@@ -15,7 +15,7 @@ From an authenticated machine:
 miren cluster export-address
 
 # Create OIDC binding for your repo
-miren auth ci <app> --github <owner>/<repo>
+miren auth ci add --app <app> --github <owner>/<repo>
 ```
 
 ### Usage
