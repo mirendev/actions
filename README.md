@@ -102,3 +102,9 @@ steps:
 | Output | Description |
 |--------|-------------|
 | `version` | The installed Miren CLI version |
+
+### Download telemetry
+
+Installing the CLI hits Miren's release endpoint, which keeps an aggregate count of downloads bucketed by a coarse client type (curl, Homebrew, a browser, a language HTTP client, CI, and so on) derived from the User-Agent. It exists so we can get a rough sense of how people install Miren. The bucket vocabulary is small and fixed, and the counter carries nothing that identifies you or your repository. (The raw User-Agent lands in server request logs, the same as it would with any web server.)
+
+When this action runs in a mirendev-owned repository it tags its own downloads with an `X-Miren-Internal` header so our CI doesn't skew the numbers. That tag is a plain boolean, and it is never sent from anyone else's repository.

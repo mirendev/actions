@@ -20,6 +20,16 @@ interface VersionInfo {
 async function run(): Promise<void> {
   const version = core.getInput("version") || "latest";
 
+  // Our own CI dogfoods these downloads heavily, which would otherwise inflate
+  // the release-adoption metrics the server tracks. When this action runs in a
+  // mirendev-owned repo, tag the download requests as internal so the server
+  // drops them from those metrics. It's only a metrics-hygiene signal, so
+  // owner detection is enough; we deliberately don't send anything that
+  // identifies external users of this action.
+  const owner = (process.env.GITHUB_REPOSITORY_OWNER ?? "").toLowerCase();
+  const downloadHeaders =
+    owner === "mirendev" ? { "X-Miren-Internal": "1" } : undefined;
+
   const platform = "linux";
   const arch = "amd64";
   const artifactName = `miren-${platform}-${arch}.zip`;
@@ -27,7 +37,12 @@ async function run(): Promise<void> {
   const versionUrl = `https://api.miren.cloud/assets/release/miren/${version}/version.json`;
   core.info(`Fetching version info from ${versionUrl}`);
 
-  const versionPath = await tc.downloadTool(versionUrl);
+  const versionPath = await tc.downloadTool(
+    versionUrl,
+    undefined,
+    undefined,
+    downloadHeaders
+  );
   const versionInfo: VersionInfo = JSON.parse(
     fs.readFileSync(versionPath, "utf-8")
   );
@@ -44,7 +59,12 @@ async function run(): Promise<void> {
     `Downloading Miren CLI ${versionInfo.version} from ${downloadUrl}`
   );
 
-  const zipPath = await tc.downloadTool(downloadUrl);
+  const zipPath = await tc.downloadTool(
+    downloadUrl,
+    undefined,
+    undefined,
+    downloadHeaders
+  );
 
   core.info("Verifying SHA-256 checksum");
   const fileBuffer = fs.readFileSync(zipPath);
