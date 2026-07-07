@@ -28242,12 +28242,20 @@ const crypto = __importStar(__nccwpck_require__(6982));
 const fs = __importStar(__nccwpck_require__(9896));
 async function run() {
     const version = core.getInput("version") || "latest";
+    // Our own CI dogfoods these downloads heavily, which would otherwise inflate
+    // the release-adoption metrics the server tracks. When this action runs in a
+    // mirendev-owned repo, tag the download requests as internal so the server
+    // drops them from those metrics. It's only a metrics-hygiene signal, so
+    // owner detection is enough; we deliberately don't send anything that
+    // identifies external users of this action.
+    const owner = (process.env.GITHUB_REPOSITORY_OWNER ?? "").toLowerCase();
+    const downloadHeaders = owner === "mirendev" ? { "X-Miren-Internal": "1" } : undefined;
     const platform = "linux";
     const arch = "amd64";
     const artifactName = `miren-${platform}-${arch}.zip`;
     const versionUrl = `https://api.miren.cloud/assets/release/miren/${version}/version.json`;
     core.info(`Fetching version info from ${versionUrl}`);
-    const versionPath = await tc.downloadTool(versionUrl);
+    const versionPath = await tc.downloadTool(versionUrl, undefined, undefined, downloadHeaders);
     const versionInfo = JSON.parse(fs.readFileSync(versionPath, "utf-8"));
     const artifact = versionInfo.artifacts.find((a) => a.name === artifactName);
     if (!artifact) {
@@ -28255,7 +28263,7 @@ async function run() {
     }
     const downloadUrl = `https://api.miren.cloud/assets/release/miren/${version}/${artifactName}`;
     core.info(`Downloading Miren CLI ${versionInfo.version} from ${downloadUrl}`);
-    const zipPath = await tc.downloadTool(downloadUrl);
+    const zipPath = await tc.downloadTool(downloadUrl, undefined, undefined, downloadHeaders);
     core.info("Verifying SHA-256 checksum");
     const fileBuffer = fs.readFileSync(zipPath);
     const hash = crypto.createHash("sha256").update(fileBuffer).digest("hex");
