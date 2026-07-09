@@ -35,6 +35,12 @@ outputs:
   urls:
     description: All route URLs for the deployed app, newline-separated (stable deploys; ephemeral previews report only their single preview URL)
     value: ${{ steps.deploy.outputs.urls }}
+  deploy-id:
+    description: Unique identifier for the deployment (empty for ephemeral previews and for CLI versions that predate the deploy summary)
+    value: ${{ steps.deploy.outputs.deploy-id }}
+  app-version:
+    description: Version identifier miren assigned to the deploy (empty for CLI versions that predate the deploy summary)
+    value: ${{ steps.deploy.outputs.app-version }}
 
 runs:
   using: composite
@@ -59,38 +65,66 @@ runs:
           ephemeral_args+=(--ephemeral "${EPHEMERAL}" --ttl "${TTL}")
         fi
 
+        # Newer miren CLIs can write a machine-readable summary of the deploy
+        # (deploy-id, app-version). Older CLIs don't know the flag and would fail
+        # on it, so we feature-detect and simply skip these outputs when it's
+        # unsupported — the deploy itself is unaffected either way.
+        summary_file=$(mktemp)
+        summary_args=()
+        if miren deploy --help 2>&1 | grep -q -- '--summary-json'; then
+          summary_args+=(--summary-json "${summary_file}")
+        fi
+
         log_file=$(mktemp)
         start=$(date +%s)
-        miren deploy "${ephemeral_args[@]}" ${{ inputs.args }} 2>&1 | tee "${log_file}"
+        miren deploy "${ephemeral_args[@]}" "${summary_args[@]}" ${{ inputs.args }} 2>&1 | tee "${log_file}"
         duration=$(( $(date +%s) - start ))
         echo "duration=${duration}" >> "$GITHUB_OUTPUT"
 
-        # Resolve the deployed app's route URL(s). The app is already live by
-        # this point, so URL resolution must never fail the step — every branch
-        # below is non-fatal.
+        # Surface the richer outputs when the CLI produced a summary. Absent or
+        # empty fields (e.g. deploy-id for an ephemeral preview) are left unset.
+        # The summary is also the authoritative source for route URLs, so when
+        # it's present we skip the legacy log/route-table parsing below entirely.
+        urls=()
+        if [[ -s "${summary_file}" ]]; then
+          deploy_id=$(jq -r '.deploy_id // empty' "${summary_file}" 2>/dev/null || true)
+          app_version=$(jq -r '.app_version // empty' "${summary_file}" 2>/dev/null || true)
+          if [[ -n "${deploy_id}" ]]; then
+            echo "deploy-id=${deploy_id}" >> "$GITHUB_OUTPUT"
+          fi
+          if [[ -n "${app_version}" ]]; then
+            echo "app-version=${app_version}" >> "$GITHUB_OUTPUT"
+          fi
+          mapfile -t urls < <(jq -r '.urls[]? // empty' "${summary_file}" 2>/dev/null || true)
+        fi
+
+        # Fallback for CLIs that predate the deploy summary: resolve route URL(s)
+        # the old way. The app is already live by this point, so URL resolution
+        # must never fail the step — every branch below is non-fatal.
         #
         # Ephemeral previews aren't real routes, so their URL only appears in
         # the deploy output as "URL: https://..." lines. Stable deploys are read
         # from the structured route table instead, which is durable across
         # changes to the human-readable deploy message.
-        urls=()
-        if [[ -n "${EPHEMERAL}" ]]; then
-          mapfile -t urls < <(
-            grep -E '^[[:space:]]*URL:[[:space:]]+https?://' "${log_file}" \
-              | sed -E 's|^[[:space:]]*URL:[[:space:]]+||' || true
-          )
-        else
-          routes_json=$(miren route list --format json 2>/dev/null || echo '[]')
-          mapfile -t urls < <(
-            jq -r --arg app "${MIREN_APP}" '
-              [ .[]
-                | select(((.app // "") | sub("^app/"; "")) == $app)
-                | (.host // "")
-                | select(. != "" and . != "(default)")
-                | "https://" + .
-              ] | unique | .[]
-            ' <<<"${routes_json}" 2>/dev/null || true
-          )
+        if [[ ${#urls[@]} -eq 0 ]]; then
+          if [[ -n "${EPHEMERAL}" ]]; then
+            mapfile -t urls < <(
+              grep -E '^[[:space:]]*URL:[[:space:]]+https?://' "${log_file}" \
+                | sed -E 's|^[[:space:]]*URL:[[:space:]]+||' || true
+            )
+          else
+            routes_json=$(miren route list --format json 2>/dev/null || echo '[]')
+            mapfile -t urls < <(
+              jq -r --arg app "${MIREN_APP}" '
+                [ .[]
+                  | select(((.app // "") | sub("^app/"; "")) == $app)
+                  | (.host // "")
+                  | select(. != "" and . != "(default)")
+                  | "https://" + .
+                ] | unique | .[]
+              ' <<<"${routes_json}" 2>/dev/null || true
+            )
+          fi
         fi
 
         if [[ ${#urls[@]} -gt 0 ]]; then
