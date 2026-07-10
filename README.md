@@ -50,6 +50,9 @@ steps:
 |--------|-------------|
 | `duration` | Deploy wall-clock duration in seconds |
 | `url` | First URL of the deployed app (the ephemeral preview URL when `ephemeral` is set) |
+| `urls` | All route URLs for the deployed app, newline-separated (ephemeral previews report only their single preview URL) |
+| `deploy-id` | Unique identifier for the deployment, for linking to logs, rollbacks, and status checks. Empty for ephemeral previews (which have no deployment record) and for older CLIs that predate the deploy summary. |
+| `app-version` | Version identifier miren assigned to the deploy, for auditing and commit-to-deploy traceability. Empty for older CLIs that predate the deploy summary. |
 
 ### Ephemeral previews
 
