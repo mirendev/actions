@@ -42,7 +42,7 @@ steps:
 | `args` | no | `""` | Extra arguments passed to `miren deploy` (e.g. `-vv --explain`) |
 | `version` | no | `latest` | Miren CLI version to install |
 | `ephemeral` | no | `""` | Deploy as an ephemeral preview with this label. The CLI normalizes it to a DNS-safe form, so a branch name like `feat/login` becomes `feat-login`. |
-| `ttl` | no | `24h` | Lifetime for the ephemeral version (e.g. `48h`). Only used when `ephemeral` is set. |
+| `ttl` | no | `168h` | Lifetime for the ephemeral version, as a Go duration (e.g. `72h`; there is no day unit, so a week is `168h`). Only used when `ephemeral` is set. |
 
 ### Outputs
 
@@ -53,10 +53,11 @@ steps:
 | `urls` | All route URLs for the deployed app, newline-separated (ephemeral previews report only their single preview URL) |
 | `deploy-id` | Unique identifier for the deployment, for linking to logs, rollbacks, and status checks. Empty for ephemeral previews (which have no deployment record) and for older CLIs that predate the deploy summary. |
 | `app-version` | Version identifier miren assigned to the deploy, for auditing and commit-to-deploy traceability. Empty for older CLIs that predate the deploy summary. |
+| `expires-at` | When the ephemeral preview expires, as an ISO 8601 UTC timestamp computed from `ttl` at the end of the deploy. Empty for stable deploys. |
 
 ### Ephemeral previews
 
-Use `ephemeral` to deploy a short-lived preview version on every push to a PR. The version is labelled, gets its own subdomain, and is garbage-collected after `ttl`.
+Use `ephemeral` to deploy a short-lived preview version on every push to a PR. The version is labelled, gets its own subdomain, and is garbage-collected after `ttl` (a week by default). A new push redeploys the preview and restarts the clock.
 
 ```yaml
 on:
@@ -78,8 +79,7 @@ jobs:
           cluster: ${{ secrets.MIREN_CLUSTER }}
           app: myapp
           ephemeral: pr-${{ github.event.number }}
-          ttl: 48h
-      - run: echo "Preview is at ${{ steps.deploy.outputs.url }}"
+      - run: echo "Preview is at ${{ steps.deploy.outputs.url }} until ${{ steps.deploy.outputs.expires-at }}"
 ```
 
 ## `mirendev/actions/setup`
