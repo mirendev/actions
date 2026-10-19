@@ -21,9 +21,9 @@ inputs:
     required: false
     default: ""
   ttl:
-    description: Lifetime for the ephemeral version (e.g. `48h`). Only used when `ephemeral` is set.
+    description: Lifetime for the ephemeral version, as a Go duration (e.g. `72h`; there is no day unit, so a week is `168h`). Only used when `ephemeral` is set.
     required: false
-    default: 24h
+    default: 168h
 
 outputs:
   duration:
@@ -41,6 +41,9 @@ outputs:
   app-version:
     description: Version identifier miren assigned to the deploy (empty for CLI versions that predate the deploy summary)
     value: ${{ steps.deploy.outputs.app-version }}
+  expires-at:
+    description: When the ephemeral preview expires, as an ISO 8601 UTC timestamp computed from `ttl` at the end of the deploy (empty for stable deploys)
+    value: ${{ steps.deploy.outputs.expires-at }}
 
 runs:
   using: composite
@@ -80,6 +83,30 @@ runs:
         miren deploy "${ephemeral_args[@]}" "${summary_args[@]}" ${{ inputs.args }} 2>&1 | tee "${log_file}"
         duration=$(( $(date +%s) - start ))
         echo "duration=${duration}" >> "$GITHUB_OUTPUT"
+
+        # The CLI reports the ttl but not when it runs out, so work out the
+        # expiry here so workflows can tell reviewers how long a preview lives.
+        # The CLI already validated TTL as a Go duration (e.g. 168h, 1h30m).
+        if [[ -n "${EPHEMERAL}" ]]; then
+          ttl_seconds=$(awk -v d="${TTL}" 'BEGIN {
+            s = 0
+            while (match(d, /^[0-9.]+(h|ms|m|s)/)) {
+              tok = substr(d, 1, RLENGTH); d = substr(d, RLENGTH + 1)
+              unit = tok; sub(/^[0-9.]+/, "", unit)
+              s += (tok + 0) * (unit == "h" ? 3600 : unit == "m" ? 60 : unit == "s" ? 1 : 0.001)
+            }
+            if (d != "" || s <= 0) exit 1
+            printf "%d", s
+          }' || true)
+          if [[ -n "${ttl_seconds}" ]]; then
+            expires=$(( $(date +%s) + ttl_seconds ))
+            expires_at=$(date -u -d "@${expires}" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null \
+              || date -u -r "${expires}" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || true)
+            if [[ -n "${expires_at}" ]]; then
+              echo "expires-at=${expires_at}" >> "$GITHUB_OUTPUT"
+            fi
+          fi
+        fi
 
         # Surface the richer outputs when the CLI produced a summary. Absent or
         # empty fields (e.g. deploy-id for an ephemeral preview) are left unset.
