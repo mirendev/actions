@@ -110,9 +110,9 @@ runs:
 
         # Surface the richer outputs when the CLI produced a summary. Absent or
         # empty fields (e.g. deploy-id for an ephemeral preview) are left unset.
-        # The summary is also the authoritative source for route URLs, so when
-        # it's present we skip the legacy log/route-table parsing below entirely.
+        # A valid URL list in the summary is authoritative, even when empty.
         urls=()
+        summary_has_urls=false
         if [[ -s "${summary_file}" ]]; then
           deploy_id=$(jq -r '.deploy_id // empty' "${summary_file}" 2>/dev/null || true)
           app_version=$(jq -r '.app_version // empty' "${summary_file}" 2>/dev/null || true)
@@ -122,7 +122,18 @@ runs:
           if [[ -n "${app_version}" ]]; then
             echo "app-version=${app_version}" >> "$GITHUB_OUTPUT"
           fi
-          mapfile -t urls < <(jq -r '.urls[]? // empty' "${summary_file}" 2>/dev/null || true)
+          if summary_urls=$(jq -rs '
+            if length == 1 and (.[0].urls | type == "array") then
+              .[0].urls[] // empty
+            else
+              error("expected a deploy summary with a URL list")
+            end
+          ' "${summary_file}" 2>/dev/null); then
+            summary_has_urls=true
+            if [[ -n "${summary_urls}" ]]; then
+              mapfile -t urls <<<"${summary_urls}"
+            fi
+          fi
         fi
 
         # Fallback for CLIs that predate the deploy summary: resolve route URL(s)
@@ -133,7 +144,7 @@ runs:
         # the deploy output as "URL: https://..." lines. Stable deploys are read
         # from the structured route table instead, which is durable across
         # changes to the human-readable deploy message.
-        if [[ ${#urls[@]} -eq 0 ]]; then
+        if [[ "${summary_has_urls}" == false ]]; then
           if [[ -n "${EPHEMERAL}" ]]; then
             mapfile -t urls < <(
               grep -E '^[[:space:]]*URL:[[:space:]]+https?://' "${log_file}" \
